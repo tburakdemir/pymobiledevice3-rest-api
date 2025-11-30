@@ -7,7 +7,6 @@ import time
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 from pymobiledevice3.tunneld.api import async_get_tunneld_devices
 from pymobiledevice3.exceptions import PyMobileDevice3Exception
-from pymobiledevice3.lockdown import LockdownClient
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -77,9 +76,11 @@ class TunnelManager:
 
                 for rsd in rsd_list:
                     try:
-                        # Get device UDID from the RSD
-                        lockdown = LockdownClient(rsd)
-                        udid = lockdown.udid
+                        # Get device UDID from the RSD - RSD has udid property directly
+                        def get_udid():
+                            return rsd.udid
+
+                        udid = await asyncio.to_thread(get_udid)
                         current_udids.add(udid)
 
                         if udid not in self.tunnels:
@@ -183,12 +184,11 @@ class TunnelManager:
             if not tunnel.rsd:
                 return False
 
-            # Try to ping the device by getting basic info
+            # Try to ping the device by getting basic info from RSD
             def check_connection():
                 try:
-                    lockdown = LockdownClient(tunnel.rsd)
-                    # Try to get a simple value to verify connection
-                    _ = lockdown.udid
+                    # RSD has udid property directly
+                    _ = tunnel.rsd.udid
                     return True
                 except:
                     return False
