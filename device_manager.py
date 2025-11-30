@@ -1,0 +1,198 @@
+import logging
+from typing import Optional, Dict
+from tenacity import retry, stop_after_attempt, wait_exponential
+from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
+from pymobiledevice3.services.dvt.instruments.device_info import DeviceInfo as DVTDeviceInfo
+from pymobiledevice3.services.dvt.instruments.activity_tracker_tap import ActivityTrackerTap
+from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
+from pymobiledevice3.services.installation_proxy import InstallationProxyService
+from pymobiledevice3.lockdown import LockdownClient
+from pymobiledevice3.services.simulate_location import DtSimulateLocation
+from pymobiledevice3.exceptions import PyMobileDevice3Exception
+from models import DeviceInfo, DeviceStatistics
+from tunnel_manager import TunnelManager
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class DeviceManager:
+    """Manages iOS device operations."""
+
+    def __init__(self, tunnel_manager: TunnelManager):
+        self.tunnel_manager = tunnel_manager
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def get_device_info(self, udid: str) -> DeviceInfo:
+        """Get detailed information about a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            # Get device information via lockdown
+            lockdown = LockdownClient(tunnel.rsd)
+            device_values = lockdown.all_values
+
+            return DeviceInfo(
+                udid=udid,
+                name=device_values.get("DeviceName"),
+                product_type=device_values.get("ProductType"),
+                product_version=device_values.get("ProductVersion"),
+                rsd_host=tunnel.host,
+                rsd_port=tunnel.port,
+                tunnel_active=tunnel.active,
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting device info for {udid}: {e}")
+            raise
+
+    async def get_all_devices(self) -> Dict[str, DeviceInfo]:
+        """Get information about all connected devices."""
+        devices = {}
+
+        for udid, tunnel in self.tunnel_manager.get_all_tunnels().items():
+            try:
+                device_info = await self.get_device_info(udid)
+                devices[udid] = device_info
+            except Exception as e:
+                logger.error(f"Error getting info for device {udid}: {e}")
+                # Include basic info even if detailed fetch fails
+                devices[udid] = DeviceInfo(
+                    udid=udid,
+                    rsd_host=tunnel.host,
+                    rsd_port=tunnel.port,
+                    tunnel_active=tunnel.active,
+                )
+
+        return devices
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def get_device_statistics(
+        self, udid: str, bundle_id: Optional[str] = None
+    ) -> DeviceStatistics:
+        """Get CPU and memory statistics for a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            # Get system statistics using Sysmontap
+            with Sysmontap(tunnel.rsd) as sysmontap:
+                # Get system information
+                system_attrs = sysmontap.get_system_attributes()
+
+                # Get process information
+                processes = sysmontap.get_process_attributes()
+
+                # Calculate total CPU usage
+                cpu_usage = 0.0
+                total_memory_mb = 0.0
+                app_memory_mb = None
+
+                # Sum up CPU and memory from all processes
+                for process in processes.values():
+                    cpu_usage += process.get("cpuUsage", 0.0)
+                    memory_bytes = process.get("memVirtualSize", 0)
+                    total_memory_mb += memory_bytes / (1024 * 1024)
+
+                    # If bundle_id is specified, get app-specific memory
+                    if bundle_id and process.get("name") == bundle_id:
+                        app_memory_mb = memory_bytes / (1024 * 1024)
+
+                return DeviceStatistics(
+                    cpuUsage=round(cpu_usage, 2),
+                    totalMemoryUsage=round(total_memory_mb, 2),
+                    appMemoryUsage=round(app_memory_mb, 2) if app_memory_mb is not None else None,
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting statistics for {udid}: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def launch_app(self, udid: str, bundle_id: str) -> bool:
+        """Launch an app on a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            # Use ProcessControl to launch the app
+            with ProcessControl(tunnel.rsd) as process_control:
+                pid = process_control.launch(
+                    bundle_id=bundle_id,
+                    arguments=[],
+                    kill_existing=True,
+                    start_suspended=False,
+                    environment={},
+                )
+
+                if pid:
+                    logger.info(f"Successfully launched {bundle_id} on {udid} with PID {pid}")
+                    return True
+                else:
+                    logger.error(f"Failed to launch {bundle_id} on {udid}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error launching app {bundle_id} on {udid}: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def set_location(self, udid: str, latitude: float, longitude: float) -> bool:
+        """Set the location for a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            # Use DtSimulateLocation to set the location
+            dt_simulate = DtSimulateLocation(tunnel.rsd)
+            dt_simulate.set(latitude, longitude)
+
+            logger.info(f"Successfully set location for {udid} to ({latitude}, {longitude})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error setting location for {udid}: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def clear_location(self, udid: str) -> bool:
+        """Clear the simulated location for a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            dt_simulate = DtSimulateLocation(tunnel.rsd)
+            dt_simulate.clear()
+
+            logger.info(f"Successfully cleared location for {udid}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error clearing location for {udid}: {e}")
+            raise
