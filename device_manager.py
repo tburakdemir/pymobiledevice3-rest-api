@@ -4,7 +4,6 @@ from typing import Optional, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
-from pymobiledevice3.lockdown import LockdownClient
 from pymobiledevice3.services.simulate_location import DtSimulateLocation
 from models import DeviceInfo, DeviceStatistics
 from tunnel_manager import TunnelManager
@@ -31,10 +30,10 @@ class DeviceManager:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Get device information via lockdown (run in thread as it's blocking)
+            # Get device information from RSD (run in thread as it's blocking)
             def get_info():
-                lockdown = LockdownClient(tunnel.rsd)
-                return lockdown.all_values
+                # RSD has all_values property directly
+                return tunnel.rsd.all_values
 
             device_values = await asyncio.to_thread(get_info)
 
