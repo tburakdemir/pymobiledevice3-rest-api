@@ -3,13 +3,9 @@ import asyncio
 from typing import Optional, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
-from pymobiledevice3.services.dvt.instruments.device_info import DeviceInfo as DVTDeviceInfo
-from pymobiledevice3.services.dvt.instruments.activity_tracker_tap import ActivityTrackerTap
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
-from pymobiledevice3.services.installation_proxy import InstallationProxyService
 from pymobiledevice3.lockdown import LockdownClient
 from pymobiledevice3.services.simulate_location import DtSimulateLocation
-from pymobiledevice3.exceptions import PyMobileDevice3Exception
 from models import DeviceInfo, DeviceStatistics
 from tunnel_manager import TunnelManager
 from config import settings
