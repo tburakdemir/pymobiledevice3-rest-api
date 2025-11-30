@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Optional, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
@@ -34,9 +35,12 @@ class DeviceManager:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Get device information via lockdown
-            lockdown = LockdownClient(tunnel.rsd)
-            device_values = lockdown.all_values
+            # Get device information via lockdown (run in thread as it's blocking)
+            def get_info():
+                lockdown = LockdownClient(tunnel.rsd)
+                return lockdown.all_values
+
+            device_values = await asyncio.to_thread(get_info)
 
             return DeviceInfo(
                 udid=udid,
@@ -86,34 +90,36 @@ class DeviceManager:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Get system statistics using Sysmontap
-            with Sysmontap(tunnel.rsd) as sysmontap:
-                # Get system information
-                system_attrs = sysmontap.get_system_attributes()
+            # Get system statistics using Sysmontap (run in thread as it's blocking)
+            def get_stats():
+                with Sysmontap(tunnel.rsd) as sysmontap:
+                    # Get process information
+                    processes = sysmontap.get_process_attributes()
 
-                # Get process information
-                processes = sysmontap.get_process_attributes()
+                    # Calculate total CPU usage
+                    cpu_usage = 0.0
+                    total_memory_mb = 0.0
+                    app_memory_mb = None
 
-                # Calculate total CPU usage
-                cpu_usage = 0.0
-                total_memory_mb = 0.0
-                app_memory_mb = None
+                    # Sum up CPU and memory from all processes
+                    for process in processes.values():
+                        cpu_usage += process.get("cpuUsage", 0.0)
+                        memory_bytes = process.get("memVirtualSize", 0)
+                        total_memory_mb += memory_bytes / (1024 * 1024)
 
-                # Sum up CPU and memory from all processes
-                for process in processes.values():
-                    cpu_usage += process.get("cpuUsage", 0.0)
-                    memory_bytes = process.get("memVirtualSize", 0)
-                    total_memory_mb += memory_bytes / (1024 * 1024)
+                        # If bundle_id is specified, get app-specific memory
+                        if bundle_id and process.get("name") == bundle_id:
+                            app_memory_mb = memory_bytes / (1024 * 1024)
 
-                    # If bundle_id is specified, get app-specific memory
-                    if bundle_id and process.get("name") == bundle_id:
-                        app_memory_mb = memory_bytes / (1024 * 1024)
+                    return cpu_usage, total_memory_mb, app_memory_mb
 
-                return DeviceStatistics(
-                    cpuUsage=round(cpu_usage, 2),
-                    totalMemoryUsage=round(total_memory_mb, 2),
-                    appMemoryUsage=round(app_memory_mb, 2) if app_memory_mb is not None else None,
-                )
+            cpu_usage, total_memory_mb, app_memory_mb = await asyncio.to_thread(get_stats)
+
+            return DeviceStatistics(
+                cpuUsage=round(cpu_usage, 2),
+                totalMemoryUsage=round(total_memory_mb, 2),
+                appMemoryUsage=round(app_memory_mb, 2) if app_memory_mb is not None else None,
+            )
 
         except Exception as e:
             logger.error(f"Error getting statistics for {udid}: {e}")
@@ -131,22 +137,26 @@ class DeviceManager:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Use ProcessControl to launch the app
-            with ProcessControl(tunnel.rsd) as process_control:
-                pid = process_control.launch(
-                    bundle_id=bundle_id,
-                    arguments=[],
-                    kill_existing=True,
-                    start_suspended=False,
-                    environment={},
-                )
+            # Use ProcessControl to launch the app (run in thread as it's blocking)
+            def launch():
+                with ProcessControl(tunnel.rsd) as process_control:
+                    pid = process_control.launch(
+                        bundle_id=bundle_id,
+                        arguments=[],
+                        kill_existing=True,
+                        start_suspended=False,
+                        environment={},
+                    )
+                    return pid
 
-                if pid:
-                    logger.info(f"Successfully launched {bundle_id} on {udid} with PID {pid}")
-                    return True
-                else:
-                    logger.error(f"Failed to launch {bundle_id} on {udid}")
-                    return False
+            pid = await asyncio.to_thread(launch)
+
+            if pid:
+                logger.info(f"Successfully launched {bundle_id} on {udid} with PID {pid}")
+                return True
+            else:
+                logger.error(f"Failed to launch {bundle_id} on {udid}")
+                return False
 
         except Exception as e:
             logger.error(f"Error launching app {bundle_id} on {udid}: {e}")
@@ -164,9 +174,12 @@ class DeviceManager:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Use DtSimulateLocation to set the location
-            dt_simulate = DtSimulateLocation(tunnel.rsd)
-            dt_simulate.set(latitude, longitude)
+            # Use DtSimulateLocation to set the location (run in thread as it's blocking)
+            def set_loc():
+                dt_simulate = DtSimulateLocation(tunnel.rsd)
+                dt_simulate.set(latitude, longitude)
+
+            await asyncio.to_thread(set_loc)
 
             logger.info(f"Successfully set location for {udid} to ({latitude}, {longitude})")
             return True
@@ -187,8 +200,12 @@ class DeviceManager:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            dt_simulate = DtSimulateLocation(tunnel.rsd)
-            dt_simulate.clear()
+            # Clear simulated location (run in thread as it's blocking)
+            def clear_loc():
+                dt_simulate = DtSimulateLocation(tunnel.rsd)
+                dt_simulate.clear()
+
+            await asyncio.to_thread(clear_loc)
 
             logger.info(f"Successfully cleared location for {udid}")
             return True

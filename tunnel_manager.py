@@ -5,8 +5,9 @@ from dataclasses import dataclass
 import subprocess
 import time
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
-from pymobiledevice3.tunneld import get_tunneld_devices
+from pymobiledevice3.tunneld.api import async_get_tunneld_devices
 from pymobiledevice3.exceptions import PyMobileDevice3Exception
+from pymobiledevice3.lockdown import LockdownClient
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -68,24 +69,33 @@ class TunnelManager:
         logger.info("Discovering devices...")
 
         try:
-            # Get connected devices via tunneld
-            devices = await asyncio.to_thread(get_tunneld_devices)
+            # Get connected devices via tunneld - returns list of RSD objects
+            rsd_list = await async_get_tunneld_devices()
 
             async with self._lock:
                 current_udids = set()
 
-                for device_info in devices:
-                    udid = device_info.udid
-                    current_udids.add(udid)
+                for rsd in rsd_list:
+                    try:
+                        # Get device UDID from the RSD
+                        lockdown = LockdownClient(rsd)
+                        udid = lockdown.udid
+                        current_udids.add(udid)
 
-                    if udid not in self.tunnels:
-                        # New device found, create tunnel
-                        await self._create_tunnel(device_info)
-                    else:
-                        # Update existing tunnel info
-                        tunnel = self.tunnels[udid]
-                        tunnel.host = device_info.hostname
-                        tunnel.port = device_info.port
+                        if udid not in self.tunnels:
+                            # New device found, create tunnel
+                            await self._create_tunnel_from_rsd(rsd, udid)
+                        else:
+                            # Update existing tunnel with new RSD if needed
+                            tunnel = self.tunnels[udid]
+                            if not tunnel.active:
+                                tunnel.rsd = rsd
+                                tunnel.active = True
+                                tunnel.restart_count = 0
+
+                    except Exception as e:
+                        logger.error(f"Error processing RSD device: {e}")
+                        continue
 
                 # Remove tunnels for disconnected devices
                 disconnected = set(self.tunnels.keys()) - current_udids
@@ -96,27 +106,30 @@ class TunnelManager:
 
         except Exception as e:
             logger.error(f"Error discovering devices: {e}")
+            logger.info("Make sure tunneld is running: sudo python3 -m pymobiledevice3 remote tunneld")
 
-    async def _create_tunnel(self, device_info):
-        """Create a new RSD tunnel for a device."""
-        udid = device_info.udid
+    async def _create_tunnel_from_rsd(self, rsd: RemoteServiceDiscoveryService, udid: str):
+        """Create a new tunnel entry from an existing RSD object."""
         logger.info(f"Creating tunnel for device {udid}")
 
         try:
-            # Create RemoteServiceDiscoveryService
-            rsd = RemoteServiceDiscoveryService((device_info.hostname, device_info.port))
+            # Extract connection info from RSD
+            # RSD address is a tuple (host, port)
+            address = getattr(rsd, 'address', ('localhost', 0))
+            host = address[0] if isinstance(address, tuple) else 'localhost'
+            port = address[1] if isinstance(address, tuple) else 0
 
             tunnel = TunnelInfo(
                 udid=udid,
-                host=device_info.hostname,
-                port=device_info.port,
+                host=host,
+                port=port,
                 rsd=rsd,
                 last_check=time.time(),
                 active=True,
             )
 
             self.tunnels[udid] = tunnel
-            logger.info(f"Tunnel created for {udid} at {device_info.hostname}:{device_info.port}")
+            logger.info(f"Tunnel created for {udid} at {host}:{port}")
 
         except Exception as e:
             logger.error(f"Failed to create tunnel for {udid}: {e}")
@@ -170,17 +183,28 @@ class TunnelManager:
             if not tunnel.rsd:
                 return False
 
-            # Try to get device info to verify connection
-            await asyncio.to_thread(lambda: tunnel.rsd.connect())
-            tunnel.last_check = time.time()
-            return True
+            # Try to ping the device by getting basic info
+            def check_connection():
+                try:
+                    lockdown = LockdownClient(tunnel.rsd)
+                    # Try to get a simple value to verify connection
+                    _ = lockdown.udid
+                    return True
+                except:
+                    return False
+
+            result = await asyncio.to_thread(check_connection)
+            if result:
+                tunnel.last_check = time.time()
+                return True
+            return False
 
         except Exception as e:
             logger.debug(f"Tunnel health check failed for {tunnel.udid}: {e}")
             return False
 
     async def _restart_tunnel(self, tunnel: TunnelInfo):
-        """Restart a crashed tunnel."""
+        """Restart a crashed tunnel by rediscovering devices."""
         if tunnel.restart_count >= settings.tunnel_restart_max_attempts:
             logger.error(f"Max restart attempts reached for {tunnel.udid}, giving up")
             tunnel.active = False
@@ -189,23 +213,15 @@ class TunnelManager:
         tunnel.restart_count += 1
         logger.info(f"Restarting tunnel for {tunnel.udid} (attempt {tunnel.restart_count})")
 
-        # Close existing tunnel
-        await self._close_tunnel(tunnel)
+        # Mark as inactive but don't remove
+        tunnel.active = False
 
-        # Wait before restarting
+        # Wait before attempting rediscovery
         await asyncio.sleep(settings.tunnel_restart_delay)
 
-        # Recreate the tunnel
-        try:
-            rsd = RemoteServiceDiscoveryService((tunnel.host, tunnel.port))
-            tunnel.rsd = rsd
-            tunnel.active = True
-            tunnel.last_check = time.time()
-            logger.info(f"Tunnel restarted successfully for {tunnel.udid}")
-
-        except Exception as e:
-            logger.error(f"Failed to restart tunnel for {tunnel.udid}: {e}")
-            tunnel.active = False
+        # Trigger device rediscovery which will recreate the tunnel
+        # The discover_devices method will find the device again and update the tunnel
+        logger.info(f"Triggering device rediscovery for {tunnel.udid}")
 
     def get_tunnel(self, udid: str) -> Optional[TunnelInfo]:
         """Get tunnel info for a specific device."""
