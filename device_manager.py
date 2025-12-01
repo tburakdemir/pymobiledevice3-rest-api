@@ -2,6 +2,7 @@ import logging
 import asyncio
 from typing import Optional, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential
+from pymobiledevice3.services.dvt.dvt_secure_socket_proxy import DvtSecureSocketProxyService
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
 from pymobiledevice3.services.simulate_location import DtSimulateLocation
@@ -87,7 +88,11 @@ class DeviceManager:
         try:
             # Get system statistics using Sysmontap (run in thread as it's blocking)
             def get_stats():
-                with Sysmontap(tunnel.rsd) as sysmontap:
+                # Create DVT secure socket proxy for DVT instruments
+                dvt = DvtSecureSocketProxyService(tunnel.rsd)
+                dvt.perform_handshake()
+
+                with Sysmontap(dvt) as sysmontap:
                     # Get process information
                     processes = sysmontap.get_process_attributes()
 
@@ -134,7 +139,11 @@ class DeviceManager:
         try:
             # Use ProcessControl to launch the app (run in thread as it's blocking)
             def launch():
-                with ProcessControl(tunnel.rsd) as process_control:
+                # Create DVT secure socket proxy for DVT instruments
+                dvt = DvtSecureSocketProxyService(tunnel.rsd)
+                dvt.perform_handshake()
+
+                with ProcessControl(dvt) as process_control:
                     pid = process_control.launch(
                         bundle_id=bundle_id,
                         arguments=[],
