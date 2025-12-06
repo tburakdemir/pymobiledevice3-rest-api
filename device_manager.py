@@ -13,6 +13,126 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+# iPhone model to total memory mapping (in bytes)
+# Sources: https://9to5mac.com/2023/11/18/iphone-ram-list/
+#          https://www.gsmarena.com/
+#          https://gist.github.com/adamawolf/3048717
+IPHONE_MEMORY_MAP: Dict[str, int] = {
+    # iPhone (2007) - 128 MB
+    "iPhone1,1": 128 * 1024 * 1024,
+    # iPhone 3G - 128 MB
+    "iPhone1,2": 128 * 1024 * 1024,
+    # iPhone 3GS - 256 MB
+    "iPhone2,1": 256 * 1024 * 1024,
+    # iPhone 4 - 512 MB
+    "iPhone3,1": 512 * 1024 * 1024,
+    "iPhone3,2": 512 * 1024 * 1024,
+    "iPhone3,3": 512 * 1024 * 1024,
+    # iPhone 4S - 512 MB
+    "iPhone4,1": 512 * 1024 * 1024,
+    # iPhone 5 - 1 GB
+    "iPhone5,1": 1 * 1024 * 1024 * 1024,
+    "iPhone5,2": 1 * 1024 * 1024 * 1024,
+    # iPhone 5C - 1 GB
+    "iPhone5,3": 1 * 1024 * 1024 * 1024,
+    "iPhone5,4": 1 * 1024 * 1024 * 1024,
+    # iPhone 5S - 1 GB
+    "iPhone6,1": 1 * 1024 * 1024 * 1024,
+    "iPhone6,2": 1 * 1024 * 1024 * 1024,
+    # iPhone 6 - 1 GB
+    "iPhone7,2": 1 * 1024 * 1024 * 1024,
+    # iPhone 6 Plus - 1 GB
+    "iPhone7,1": 1 * 1024 * 1024 * 1024,
+    # iPhone 6s - 2 GB
+    "iPhone8,1": 2 * 1024 * 1024 * 1024,
+    # iPhone 6s Plus - 2 GB
+    "iPhone8,2": 2 * 1024 * 1024 * 1024,
+    # iPhone SE (1st gen) - 2 GB
+    "iPhone8,4": 2 * 1024 * 1024 * 1024,
+    # iPhone 7 - 2 GB
+    "iPhone9,1": 2 * 1024 * 1024 * 1024,
+    "iPhone9,3": 2 * 1024 * 1024 * 1024,
+    # iPhone 7 Plus - 3 GB
+    "iPhone9,2": 3 * 1024 * 1024 * 1024,
+    "iPhone9,4": 3 * 1024 * 1024 * 1024,
+    # iPhone 8 - 2 GB
+    "iPhone10,1": 2 * 1024 * 1024 * 1024,
+    "iPhone10,4": 2 * 1024 * 1024 * 1024,
+    # iPhone 8 Plus - 3 GB
+    "iPhone10,2": 3 * 1024 * 1024 * 1024,
+    "iPhone10,5": 3 * 1024 * 1024 * 1024,
+    # iPhone X - 3 GB
+    "iPhone10,3": 3 * 1024 * 1024 * 1024,
+    "iPhone10,6": 3 * 1024 * 1024 * 1024,
+    # iPhone XS - 4 GB
+    "iPhone11,2": 4 * 1024 * 1024 * 1024,
+    # iPhone XS Max - 4 GB
+    "iPhone11,4": 4 * 1024 * 1024 * 1024,
+    "iPhone11,6": 4 * 1024 * 1024 * 1024,
+    # iPhone XR - 3 GB
+    "iPhone11,8": 3 * 1024 * 1024 * 1024,
+    # iPhone 11 - 4 GB
+    "iPhone12,1": 4 * 1024 * 1024 * 1024,
+    # iPhone 11 Pro - 4 GB
+    "iPhone12,3": 4 * 1024 * 1024 * 1024,
+    # iPhone 11 Pro Max - 4 GB
+    "iPhone12,5": 4 * 1024 * 1024 * 1024,
+    # iPhone SE (2nd gen) - 3 GB
+    "iPhone12,8": 3 * 1024 * 1024 * 1024,
+    # iPhone 12 mini - 4 GB
+    "iPhone13,1": 4 * 1024 * 1024 * 1024,
+    # iPhone 12 - 4 GB
+    "iPhone13,2": 4 * 1024 * 1024 * 1024,
+    # iPhone 12 Pro - 6 GB
+    "iPhone13,3": 6 * 1024 * 1024 * 1024,
+    # iPhone 12 Pro Max - 6 GB
+    "iPhone13,4": 6 * 1024 * 1024 * 1024,
+    # iPhone 13 Pro - 6 GB
+    "iPhone14,2": 6 * 1024 * 1024 * 1024,
+    # iPhone 13 Pro Max - 6 GB
+    "iPhone14,3": 6 * 1024 * 1024 * 1024,
+    # iPhone 13 mini - 4 GB
+    "iPhone14,4": 4 * 1024 * 1024 * 1024,
+    # iPhone 13 - 4 GB
+    "iPhone14,5": 4 * 1024 * 1024 * 1024,
+    # iPhone SE (3rd gen) - 4 GB
+    "iPhone14,6": 4 * 1024 * 1024 * 1024,
+    # iPhone 14 - 6 GB
+    "iPhone14,7": 6 * 1024 * 1024 * 1024,
+    # iPhone 14 Plus - 6 GB
+    "iPhone14,8": 6 * 1024 * 1024 * 1024,
+    # iPhone 14 Pro - 6 GB
+    "iPhone15,2": 6 * 1024 * 1024 * 1024,
+    # iPhone 14 Pro Max - 6 GB
+    "iPhone15,3": 6 * 1024 * 1024 * 1024,
+    # iPhone 15 - 6 GB
+    "iPhone15,4": 6 * 1024 * 1024 * 1024,
+    # iPhone 15 Plus - 6 GB
+    "iPhone15,5": 6 * 1024 * 1024 * 1024,
+    # iPhone 15 Pro - 8 GB
+    "iPhone16,1": 8 * 1024 * 1024 * 1024,
+    # iPhone 15 Pro Max - 8 GB
+    "iPhone16,2": 8 * 1024 * 1024 * 1024,
+    # iPhone 16 Pro - 8 GB
+    "iPhone17,1": 8 * 1024 * 1024 * 1024,
+    # iPhone 16 Pro Max - 8 GB
+    "iPhone17,2": 8 * 1024 * 1024 * 1024,
+    # iPhone 16 - 8 GB
+    "iPhone17,3": 8 * 1024 * 1024 * 1024,
+    # iPhone 16 Plus - 8 GB
+    "iPhone17,4": 8 * 1024 * 1024 * 1024,
+    # iPhone 16e - 8 GB
+    "iPhone17,5": 8 * 1024 * 1024 * 1024,
+    # iPhone 17 Pro - 12 GB
+    "iPhone18,1": 12 * 1024 * 1024 * 1024,
+    # iPhone 17 Pro Max - 12 GB
+    "iPhone18,2": 12 * 1024 * 1024 * 1024,
+    # iPhone 17 - 12 GB
+    "iPhone18,3": 12 * 1024 * 1024 * 1024,
+    # iPhone 17 Air - 12 GB
+    "iPhone18,4": 12 * 1024 * 1024 * 1024,
+}
+
 
 class DeviceManager:
     """Manages iOS device operations."""
@@ -37,28 +157,14 @@ class DeviceManager:
                 # RSD has all_values property directly
                 return tunnel.rsd.all_values
 
-            # Get total memory using DiagnosticsService
-            def get_total_memory():
-                try:
-                    diagnostics = DiagnosticsService(tunnel.rsd)
-                    ioregistry = diagnostics.get_ioregistry_entry(
-                        "AppleARMPE",
-                        "IOService",
-                    )
-                    if ioregistry and "device-physical-memory" in ioregistry:
-                        return ioregistry.get("device-physical-memory")
-                    return None
-                except Exception as e:
-                    logger.warning(f"Could not get total memory for {udid}: {e}")
-                    return None
-
             device_values = await asyncio.to_thread(get_info)
-            total_memory = await asyncio.to_thread(get_total_memory)
+            product_type = device_values.get("ProductType")
+            total_memory = IPHONE_MEMORY_MAP.get(product_type)
 
             return DeviceInfo(
                 udid=udid,
                 name=device_values.get("DeviceName"),
-                product_type=device_values.get("ProductType"),
+                product_type=product_type,
                 product_version=device_values.get("ProductVersion"),
                 total_memory=total_memory,
                 rsd_host=tunnel.host,
