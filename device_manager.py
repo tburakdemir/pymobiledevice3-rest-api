@@ -107,26 +107,30 @@ class DeviceManager:
                     # Calculate total CPU usage
                     cpu_usage = 0.0
                     total_memory_mb = 0.0
+                    app_cpu_usage = None
                     app_memory_mb = None
 
                     # Sum up CPU and memory from all processes
                     for process in processes:
-                        cpu_usage += process.get("cpuUsage") or 0.0
+                        process_cpu = process.get("cpuUsage") or 0.0
+                        cpu_usage += process_cpu
                         # Use physFootprint for physical memory usage
                         memory_bytes = process.get("physFootprint") or 0
                         total_memory_mb += memory_bytes / (1024 * 1024)
 
-                        # If bundle_id is specified, get app-specific memory
+                        # If bundle_id is specified, get app-specific stats
                         if bundle_id and process.get("name") == bundle_id:
+                            app_cpu_usage = process_cpu
                             app_memory_mb = memory_bytes / (1024 * 1024)
 
-                    return cpu_usage, total_memory_mb, app_memory_mb
+                    return cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb
 
-            cpu_usage, total_memory_mb, app_memory_mb = await asyncio.to_thread(get_stats)
+            cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb = await asyncio.to_thread(get_stats)
 
             return DeviceStatistics(
                 cpuUsage=round(cpu_usage, 2),
                 totalMemoryUsage=round(total_memory_mb, 2),
+                appCpuUsage=round(app_cpu_usage, 2) if app_cpu_usage is not None else None,
                 appMemoryUsage=round(app_memory_mb, 2) if app_memory_mb is not None else None,
             )
 
