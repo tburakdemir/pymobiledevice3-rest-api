@@ -64,7 +64,7 @@ async def health():
     return {"status": "healthy"}
 
 
-@app.get("/v1/devices", response_model=Dict[str, DeviceInfo])
+@app.get("/api/v1/devices", response_model=Dict[str, DeviceInfo])
 async def get_devices():
     """
     Get all connected iOS devices with their information.
@@ -88,7 +88,7 @@ async def get_devices():
         raise HTTPException(status_code=500, detail=f"Failed to get devices: {str(e)}")
 
 
-@app.get("/v1/devices/{udid}", response_model=DeviceInfo)
+@app.get("/api/v1/devices/{udid}", response_model=DeviceInfo)
 async def get_device(udid: str):
     """
     Get information for a specific device by UDID.
@@ -117,7 +117,7 @@ async def get_device(udid: str):
         raise HTTPException(status_code=500, detail=f"Failed to get device: {str(e)}")
 
 
-@app.get("/v1/device/{udid}/statistics", response_model=DeviceStatistics)
+@app.get("/api/v1/devices/{udid}/statistics", response_model=DeviceStatistics)
 async def get_device_statistics(
     udid: str,
     bundle_id: Optional[str] = Query(None, description="Bundle ID to get app-specific statistics"),
@@ -149,7 +149,7 @@ async def get_device_statistics(
         )
 
 
-@app.post("/v1/device/{udid}/launch")
+@app.post("/api/v1/devices/{udid}/launch")
 async def launch_app(udid: str, request: LaunchAppRequest):
     """
     Launch an app on a device.
@@ -184,7 +184,7 @@ async def launch_app(udid: str, request: LaunchAppRequest):
         raise HTTPException(status_code=500, detail=f"Failed to launch app: {str(e)}")
 
 
-@app.post("/v1/device/{udid}/location")
+@app.post("/api/v1/devices/{udid}/location")
 async def set_location(udid: str, request: SetLocationRequest):
     """
     Set the location for a device.
@@ -220,7 +220,7 @@ async def set_location(udid: str, request: SetLocationRequest):
         raise HTTPException(status_code=500, detail=f"Failed to set location: {str(e)}")
 
 
-@app.delete("/v1/device/{udid}/location")
+@app.delete("/api/v1/devices/{udid}/location")
 async def clear_location(udid: str):
     """
     Clear the simulated location for a device.
