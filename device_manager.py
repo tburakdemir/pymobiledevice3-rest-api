@@ -5,6 +5,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from pymobiledevice3.services.dvt.dvt_secure_socket_proxy import DvtSecureSocketProxyService
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
+from pymobiledevice3.services.dvt.instruments.screenshot import Screenshot
 from pymobiledevice3.services.simulate_location import DtSimulateLocation
 from pymobiledevice3.services.diagnostics import DiagnosticsService
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
@@ -451,3 +452,37 @@ class DeviceManager:
                 results[bundle_id] = False
 
         return results
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def get_screenshot(self, udid: str) -> bytes:
+        """Get a screenshot from a device.
+
+        Args:
+            udid: Device UDID
+
+        Returns:
+            PNG image bytes
+        """
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            def capture_screenshot():
+                dvt = DvtSecureSocketProxyService(tunnel.rsd)
+                dvt.perform_handshake()
+                screenshot = Screenshot(dvt)
+                return screenshot.get_screenshot()
+
+            image_data = await asyncio.to_thread(capture_screenshot)
+
+            logger.info(f"Successfully captured screenshot from {udid}")
+            return image_data
+
+        except Exception as e:
+            logger.error(f"Error capturing screenshot from {udid}: {e}")
+            raise
