@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from typing import Dict, Optional, List, Any
 import logging
 from contextlib import asynccontextmanager
@@ -351,4 +351,32 @@ async def uninstall_apps(udid: str, request: UninstallAppsRequest):
         logger.error(f"Error uninstalling apps on {udid}: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to uninstall apps: {str(e)}"
+        )
+
+
+@app.post("/api/v1/devices/{udid}/screenshot")
+async def take_screenshot(udid: str):
+    """
+    Take a screenshot of the device screen.
+
+    Args:
+        udid: Device UDID
+
+    Returns:
+        PNG image data
+    """
+    try:
+        image_bytes = await device_manager.get_screenshot(udid)
+
+        return Response(
+            content=image_bytes,
+            media_type="image/png",
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error taking screenshot on {udid}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to take screenshot: {str(e)}"
         )
