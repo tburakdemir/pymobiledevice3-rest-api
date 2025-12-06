@@ -118,19 +118,20 @@ async def get_device(udid: str):
 @app.get("/v1/device/{udid}/statistics", response_model=DeviceStatistics)
 async def get_device_statistics(
     udid: str,
-    bundle_id: Optional[str] = Query(None, description="Bundle ID to get app-specific memory usage"),
+    bundle_id: Optional[str] = Query(None, description="Bundle ID to get app-specific statistics"),
 ):
     """
     Get device CPU and memory statistics.
 
     Args:
         udid: Device UDID
-        bundle_id: Optional bundle ID to get app-specific memory usage
+        bundle_id: Optional bundle ID to get app-specific statistics
 
     Returns:
         Statistics including:
         - cpuUsage: CPU usage in percentage
         - totalMemoryUsage: Total memory usage in MB
+        - appCpuUsage: App CPU usage in percentage (if bundle_id provided)
         - appMemoryUsage: App memory usage in MB (if bundle_id provided)
     """
     try:
