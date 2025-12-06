@@ -93,16 +93,19 @@ class DeviceManager:
                 dvt.perform_handshake()
 
                 with Sysmontap(dvt) as sysmontap:
-                    # Use iter_processes() to get process snapshots
+                    # Use raw iterator to get CPU count for normalization
                     # The first sample doesn't have reliable cpuUsage values,
                     # so we need to skip it and use the second sample
-                    process_iter = sysmontap.iter_processes()
+                    raw_iter = iter(sysmontap)
 
                     # Skip first sample (uninitialized cpuUsage values)
-                    next(process_iter)
+                    next(raw_iter)
 
                     # Get second sample with accurate CPU data
-                    processes = next(process_iter)
+                    row = next(raw_iter)
+
+                    # Get CPU count for normalization
+                    cpu_count = row.get("CPUCount", 1)
 
                     # Calculate total CPU usage
                     cpu_usage = 0.0
@@ -110,20 +113,33 @@ class DeviceManager:
                     app_cpu_usage = None
                     app_memory_mb = None
 
-                    # Sum up CPU and memory from all processes
-                    for process in processes:
-                        process_cpu = process.get("cpuUsage") or 0.0
-                        cpu_usage += process_cpu
-                        # Use physFootprint for physical memory usage
-                        memory_bytes = process.get("physFootprint") or 0
-                        total_memory_mb += memory_bytes / (1024 * 1024)
+                    # Process the data from raw format
+                    if "Processes" in row:
+                        processes = row["Processes"]
+                        for _pid, process_info in processes.items():
+                            # Convert process_info tuple to dict using attribute names
+                            process = dict(
+                                zip(
+                                    sysmontap.process_attributes_cls.__dataclass_fields__.keys(),
+                                    process_info,
+                                )
+                            )
 
-                        # If bundle_id is specified, get app-specific stats
-                        if bundle_id and process.get("name") == bundle_id:
-                            app_cpu_usage = process_cpu
-                            app_memory_mb = memory_bytes / (1024 * 1024)
+                            process_cpu = process.get("cpuUsage") or 0.0
+                            cpu_usage += process_cpu
+                            # Use physFootprint for physical memory usage
+                            memory_bytes = process.get("physFootprint") or 0
+                            total_memory_mb += memory_bytes / (1024 * 1024)
 
-                    return cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb
+                            # If bundle_id is specified, get app-specific stats
+                            if bundle_id and process.get("name") == bundle_id:
+                                app_cpu_usage = process_cpu
+                                app_memory_mb = memory_bytes / (1024 * 1024)
+
+                    # Normalize CPU usage to 0-100% by dividing by CPU count
+                    normalized_cpu_usage = cpu_usage / cpu_count if cpu_count > 0 else cpu_usage
+
+                    return normalized_cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb
 
             cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb = await asyncio.to_thread(get_stats)
 
