@@ -93,8 +93,16 @@ class DeviceManager:
                 dvt.perform_handshake()
 
                 with Sysmontap(dvt) as sysmontap:
-                    # Get process information
-                    processes = sysmontap.get_process_attributes()
+                    # Use iter_processes() to get process snapshots
+                    # The first sample doesn't have reliable cpuUsage values,
+                    # so we need to skip it and use the second sample
+                    process_iter = sysmontap.iter_processes()
+
+                    # Skip first sample (uninitialized cpuUsage values)
+                    next(process_iter)
+
+                    # Get second sample with accurate CPU data
+                    processes = next(process_iter)
 
                     # Calculate total CPU usage
                     cpu_usage = 0.0
@@ -102,9 +110,10 @@ class DeviceManager:
                     app_memory_mb = None
 
                     # Sum up CPU and memory from all processes
-                    for process in processes.values():
-                        cpu_usage += process.get("cpuUsage", 0.0)
-                        memory_bytes = process.get("memVirtualSize", 0)
+                    for process in processes:
+                        cpu_usage += process.get("cpuUsage") or 0.0
+                        # Use physFootprint for physical memory usage
+                        memory_bytes = process.get("physFootprint") or 0
                         total_memory_mb += memory_bytes / (1024 * 1024)
 
                         # If bundle_id is specified, get app-specific memory
