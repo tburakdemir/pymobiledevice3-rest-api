@@ -76,7 +76,7 @@ Once the server is running, you can access:
 
 ## API Endpoints
 
-### GET /v1/devices
+### GET /api/v1/devices
 
 Get all connected devices with their information.
 
@@ -95,7 +95,7 @@ Get all connected devices with their information.
 }
 ```
 
-### GET /v1/devices/{udid}
+### GET /api/v1/devices/{udid}
 
 Get information for a specific device.
 
@@ -112,7 +112,7 @@ Get information for a specific device.
 }
 ```
 
-### GET /v1/device/{udid}/statistics
+### GET /api/v1/devices/{udid}/statistics
 
 Get device CPU and memory statistics.
 
@@ -121,7 +121,7 @@ Get device CPU and memory statistics.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/v1/device/00008030-001234567890ABCD/statistics?bundle_id=com.example.app"
+curl "http://localhost:8000/api/v1/devices/00008030-001234567890ABCD/statistics?bundle_id=com.example.app"
 ```
 
 **Response:**
@@ -133,7 +133,7 @@ curl "http://localhost:8000/v1/device/00008030-001234567890ABCD/statistics?bundl
 }
 ```
 
-### POST /v1/device/{udid}/launch
+### POST /api/v1/devices/{udid}/launch
 
 Launch an app on the device.
 
@@ -152,7 +152,7 @@ Launch an app on the device.
 }
 ```
 
-### POST /v1/device/{udid}/location
+### POST /api/v1/devices/{udid}/location
 
 Set a custom location on the device.
 
@@ -172,7 +172,7 @@ Set a custom location on the device.
 }
 ```
 
-### DELETE /v1/device/{udid}/location
+### DELETE /api/v1/devices/{udid}/location
 
 Clear the simulated location.
 
@@ -190,18 +190,18 @@ Clear the simulated location.
 
 ```bash
 # Get all devices
-curl http://localhost:8000/v1/devices
+curl http://localhost:8000/api/v1/devices
 
 # Get device statistics
-curl http://localhost:8000/v1/device/YOUR_UDID/statistics
+curl http://localhost:8000/api/v1/devices/YOUR_UDID/statistics
 
 # Launch an app
-curl -X POST http://localhost:8000/v1/device/YOUR_UDID/launch \
+curl -X POST http://localhost:8000/api/v1/devices/YOUR_UDID/launch \
   -H "Content-Type: application/json" \
   -d '{"app": "com.apple.mobilesafari"}'
 
 # Set location
-curl -X POST http://localhost:8000/v1/device/YOUR_UDID/location \
+curl -X POST http://localhost:8000/api/v1/devices/YOUR_UDID/location \
   -H "Content-Type: application/json" \
   -d '{"latitude": 37.7749, "longitude": -122.4194}'
 ```
@@ -214,7 +214,7 @@ import requests
 BASE_URL = "http://localhost:8000"
 
 # Get all devices
-response = requests.get(f"{BASE_URL}/v1/devices")
+response = requests.get(f"{BASE_URL}/api/v1/devices")
 devices = response.json()
 
 # Get first device UDID
@@ -222,7 +222,7 @@ udid = list(devices.keys())[0]
 
 # Get statistics
 stats = requests.get(
-    f"{BASE_URL}/v1/device/{udid}/statistics",
+    f"{BASE_URL}/api/v1/devices/{udid}/statistics",
     params={"bundle_id": "com.example.app"}
 ).json()
 
@@ -231,13 +231,13 @@ print(f"Memory: {stats['totalMemoryUsage']} MB")
 
 # Launch app
 requests.post(
-    f"{BASE_URL}/v1/device/{udid}/launch",
+    f"{BASE_URL}/api/v1/devices/{udid}/launch",
     json={"app": "com.apple.mobilesafari"}
 )
 
 # Set location
 requests.post(
-    f"{BASE_URL}/v1/device/{udid}/location",
+    f"{BASE_URL}/api/v1/devices/{udid}/location",
     json={"latitude": 37.7749, "longitude": -122.4194}
 )
 ```
