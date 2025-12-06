@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 
 
 class DeviceInfo(BaseModel):
@@ -36,3 +36,15 @@ class SetLocationRequest(BaseModel):
 
     latitude: float = Field(..., description="Latitude coordinate")
     longitude: float = Field(..., description="Longitude coordinate")
+
+
+class InstallAppRequest(BaseModel):
+    """Request model for installing an app."""
+
+    path: str = Field(..., description="Path to the IPA file to install")
+
+
+class UninstallAppsRequest(BaseModel):
+    """Request model for uninstalling apps."""
+
+    bundle_ids: List[str] = Field(..., description="List of bundle IDs to uninstall")

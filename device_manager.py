@@ -1,12 +1,13 @@
 import logging
 import asyncio
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pymobiledevice3.services.dvt.dvt_secure_socket_proxy import DvtSecureSocketProxyService
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
 from pymobiledevice3.services.simulate_location import DtSimulateLocation
 from pymobiledevice3.services.diagnostics import DiagnosticsService
+from pymobiledevice3.services.installation_proxy import InstallationProxyService
 from models import DeviceInfo, DeviceStatistics
 from tunnel_manager import TunnelManager
 from config import settings
@@ -370,3 +371,83 @@ class DeviceManager:
         except Exception as e:
             logger.error(f"Error clearing location for {udid}: {e}")
             raise
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def list_apps(self, udid: str) -> List[Dict[str, Any]]:
+        """List all installed apps on a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            def get_apps():
+                installation_proxy = InstallationProxyService(tunnel.rsd)
+                return installation_proxy.get_apps()
+
+            apps = await asyncio.to_thread(get_apps)
+
+            logger.info(f"Successfully listed {len(apps)} apps on {udid}")
+            return apps
+
+        except Exception as e:
+            logger.error(f"Error listing apps on {udid}: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def install_app(self, udid: str, ipa_path: str) -> bool:
+        """Install an IPA on a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        try:
+            def install():
+                installation_proxy = InstallationProxyService(tunnel.rsd)
+                installation_proxy.install_from_local(ipa_path)
+
+            await asyncio.to_thread(install)
+
+            logger.info(f"Successfully installed {ipa_path} on {udid}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error installing app {ipa_path} on {udid}: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(settings.max_retries),
+        wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
+        reraise=True,
+    )
+    async def uninstall_apps(self, udid: str, bundle_ids: List[str]) -> Dict[str, bool]:
+        """Uninstall apps from a device."""
+        tunnel = self.tunnel_manager.get_tunnel(udid)
+        if not tunnel or not tunnel.active:
+            raise ValueError(f"Device {udid} not found or tunnel inactive")
+
+        results = {}
+
+        for bundle_id in bundle_ids:
+            try:
+                def uninstall():
+                    installation_proxy = InstallationProxyService(tunnel.rsd)
+                    installation_proxy.uninstall(bundle_id)
+
+                await asyncio.to_thread(uninstall)
+
+                logger.info(f"Successfully uninstalled {bundle_id} from {udid}")
+                results[bundle_id] = True
+
+            except Exception as e:
+                logger.error(f"Error uninstalling {bundle_id} from {udid}: {e}")
+                results[bundle_id] = False
+
+        return results
