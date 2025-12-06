@@ -378,7 +378,7 @@ class DeviceManager:
         wait=wait_exponential(multiplier=settings.retry_delay, min=1, max=10),
         reraise=True,
     )
-    async def list_apps(self, udid: str) -> List[Dict[str, Any]]:
+    async def list_apps(self, udid: str) -> Dict[str, Any]:
         """List all installed apps on a device."""
         tunnel = self.tunnel_manager.get_tunnel(udid)
         if not tunnel or not tunnel.active:
@@ -387,7 +387,7 @@ class DeviceManager:
         try:
             def get_apps():
                 installation_proxy = InstallationProxyService(tunnel.rsd)
-                return installation_proxy.get_apps()
+                return installation_proxy.get_apps("User")
 
             apps = await asyncio.to_thread(get_apps)
 

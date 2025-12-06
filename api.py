@@ -260,7 +260,7 @@ async def clear_location(udid: str):
         )
 
 
-@app.get("/api/v1/devices/{udid}/apps", response_model=List[Dict[str, Any]])
+@app.get("/api/v1/devices/{udid}/apps", response_model=Dict[str, Any])
 async def list_apps(udid: str):
     """
     List all installed apps on a device.
