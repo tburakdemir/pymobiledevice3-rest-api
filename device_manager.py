@@ -6,6 +6,7 @@ from pymobiledevice3.services.dvt.dvt_secure_socket_proxy import DvtSecureSocket
 from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
 from pymobiledevice3.services.simulate_location import DtSimulateLocation
+from pymobiledevice3.services.diagnostics import DiagnosticsService
 from models import DeviceInfo, DeviceStatistics
 from tunnel_manager import TunnelManager
 from config import settings
@@ -80,7 +81,7 @@ class DeviceManager:
     async def get_device_statistics(
         self, udid: str, bundle_id: Optional[str] = None
     ) -> DeviceStatistics:
-        """Get CPU and memory statistics for a device."""
+        """Get CPU, memory, and battery statistics for a device."""
         tunnel = self.tunnel_manager.get_tunnel(udid)
         if not tunnel or not tunnel.active:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
@@ -125,11 +126,28 @@ class DeviceManager:
 
                     return cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb
 
+            # Get battery level using DiagnosticsService
+            def get_battery():
+                try:
+                    diagnostics = DiagnosticsService(tunnel.rsd)
+                    battery_info = diagnostics.get_battery()
+                    # Battery info is a list of power sources, get the first one
+                    if battery_info and len(battery_info) > 0:
+                        power_source = battery_info[0]
+                        # CurrentCapacity is the battery level percentage
+                        return power_source.get("CurrentCapacity")
+                    return None
+                except Exception as e:
+                    logger.warning(f"Could not get battery level for {udid}: {e}")
+                    return None
+
             cpu_usage, total_memory_mb, app_cpu_usage, app_memory_mb = await asyncio.to_thread(get_stats)
+            battery_level = await asyncio.to_thread(get_battery)
 
             return DeviceStatistics(
                 cpuUsage=round(cpu_usage, 2),
                 totalMemoryUsage=round(total_memory_mb, 2),
+                batteryLevel=battery_level,
                 appCpuUsage=round(app_cpu_usage, 2) if app_cpu_usage is not None else None,
                 appMemoryUsage=round(app_memory_mb, 2) if app_memory_mb is not None else None,
             )
