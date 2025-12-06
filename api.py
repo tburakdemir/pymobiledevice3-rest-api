@@ -121,7 +121,7 @@ async def get_device_statistics(
     bundle_id: Optional[str] = Query(None, description="Bundle ID to get app-specific statistics"),
 ):
     """
-    Get device CPU and memory statistics.
+    Get device CPU, memory, and battery statistics.
 
     Args:
         udid: Device UDID
@@ -131,6 +131,7 @@ async def get_device_statistics(
         Statistics including:
         - cpuUsage: CPU usage in percentage
         - totalMemoryUsage: Total memory usage in MB
+        - batteryLevel: Battery level in percentage (0-100)
         - appCpuUsage: App CPU usage in percentage (if bundle_id provided)
         - appMemoryUsage: App memory usage in MB (if bundle_id provided)
     """
