@@ -37,13 +37,30 @@ class DeviceManager:
                 # RSD has all_values property directly
                 return tunnel.rsd.all_values
 
+            # Get total memory using DiagnosticsService
+            def get_total_memory():
+                try:
+                    diagnostics = DiagnosticsService(tunnel.rsd)
+                    ioregistry = diagnostics.get_ioregistry_entry(
+                        "AppleARMPE",
+                        "IOService",
+                    )
+                    if ioregistry and "device-physical-memory" in ioregistry:
+                        return ioregistry.get("device-physical-memory")
+                    return None
+                except Exception as e:
+                    logger.warning(f"Could not get total memory for {udid}: {e}")
+                    return None
+
             device_values = await asyncio.to_thread(get_info)
+            total_memory = await asyncio.to_thread(get_total_memory)
 
             return DeviceInfo(
                 udid=udid,
                 name=device_values.get("DeviceName"),
                 product_type=device_values.get("ProductType"),
                 product_version=device_values.get("ProductVersion"),
+                total_memory=total_memory,
                 rsd_host=tunnel.host,
                 rsd_port=tunnel.port,
                 tunnel_active=tunnel.active,

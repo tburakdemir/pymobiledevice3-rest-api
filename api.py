@@ -75,6 +75,7 @@ async def get_devices():
         - name: Device name
         - product_type: Product type (e.g., iPhone14,2)
         - product_version: iOS version
+        - total_memory: Total device memory in bytes
         - rsd_host: RSD tunnel host
         - rsd_port: RSD tunnel port
         - tunnel_active: Whether the tunnel is active
@@ -101,6 +102,7 @@ async def get_device(udid: str):
         - name: Device name
         - product_type: Product type
         - product_version: iOS version
+        - total_memory: Total device memory in bytes
         - rsd_host: RSD tunnel host
         - rsd_port: RSD tunnel port
         - tunnel_active: Whether the tunnel is active

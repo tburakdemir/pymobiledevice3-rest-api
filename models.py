@@ -9,6 +9,7 @@ class DeviceInfo(BaseModel):
     name: Optional[str] = None
     product_type: Optional[str] = None
     product_version: Optional[str] = None
+    total_memory: Optional[int] = None
     rsd_host: str
     rsd_port: int
     tunnel_active: bool = True
