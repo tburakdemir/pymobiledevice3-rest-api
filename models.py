@@ -19,6 +19,7 @@ class DeviceStatistics(BaseModel):
 
     cpuUsage: float = Field(..., description="CPU usage in percentage")
     totalMemoryUsage: float = Field(..., description="Total memory usage in MB")
+    batteryLevel: Optional[int] = Field(None, description="Battery level in percentage (0-100)")
     appCpuUsage: Optional[float] = Field(None, description="App CPU usage in percentage (if bundle_id provided)")
     appMemoryUsage: Optional[float] = Field(None, description="App memory usage in MB (if bundle_id provided)")
 
