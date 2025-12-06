@@ -150,9 +150,8 @@ class DeviceManager:
                     battery_info = diagnostics.get_battery()
                     # Battery info is a list of power sources, get the first one
                     if battery_info and len(battery_info) > 0:
-                        power_source = battery_info[0]
                         # CurrentCapacity is the battery level percentage
-                        return power_source.get("CurrentCapacity")
+                        return battery_info.get("CurrentCapacity")
                     return None
                 except Exception as e:
                     logger.warning(f"Could not get battery level for {udid}: {e}")

@@ -116,7 +116,7 @@ class TunnelManager:
         try:
             # Extract connection info from RSD
             # RSD address is a tuple (host, port)
-            address = getattr(rsd, 'address', ('localhost', 0))
+            address = getattr(rsd.service, 'address', ('localhost', 0))
             host = address[0] if isinstance(address, tuple) else 'localhost'
             port = address[1] if isinstance(address, tuple) else 0
 
