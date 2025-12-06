@@ -296,15 +296,15 @@ class DeviceManager:
                 dvt = DvtSecureSocketProxyService(tunnel.rsd)
                 dvt.perform_handshake()
 
-                with ProcessControl(dvt) as process_control:
-                    pid = process_control.launch(
-                        bundle_id=bundle_id,
-                        arguments=[],
-                        kill_existing=True,
-                        start_suspended=False,
-                        environment={},
-                    )
-                    return pid
+                process_control = ProcessControl(dvt)
+                pid = process_control.launch(
+                    bundle_id=bundle_id,
+                    arguments=[],
+                    kill_existing=True,
+                    start_suspended=False,
+                    environment={},
+                )
+                return pid
 
             pid = await asyncio.to_thread(launch)
 
