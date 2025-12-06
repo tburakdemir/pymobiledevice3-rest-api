@@ -7,6 +7,7 @@ from pymobiledevice3.services.dvt.instruments.process_control import ProcessCont
 from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
 from pymobiledevice3.services.dvt.instruments.screenshot import Screenshot
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
+from pymobiledevice3.services.simulate_location import DtSimulateLocation
 from pymobiledevice3.services.diagnostics import DiagnosticsService
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
 from models import DeviceInfo, DeviceStatistics
@@ -329,23 +330,32 @@ class DeviceManager:
     async def set_location(self, udid: str, latitude: float, longitude: float) -> bool:
         """Set the location for a device.
 
-        Uses DVT LocationSimulation which is compatible with iOS 17+.
+        Uses DVT LocationSimulation for iOS 17+ and DtSimulateLocation for older iOS.
         """
         tunnel = self.tunnel_manager.get_tunnel(udid)
         if not tunnel or not tunnel.active:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Use DVT LocationSimulation to set the location (run in thread as it's blocking)
-            def set_loc():
-                dvt = DvtSecureSocketProxyService(tunnel.rsd)
-                dvt.perform_handshake()
-                location_sim = LocationSimulation(dvt)
-                location_sim.set(latitude, longitude)
+            if tunnel.is_ios17_or_newer:
+                # iOS 17+: Use DVT LocationSimulation
+                def set_loc_dvt():
+                    dvt = DvtSecureSocketProxyService(tunnel.rsd)
+                    dvt.perform_handshake()
+                    location_sim = LocationSimulation(dvt)
+                    location_sim.set(latitude, longitude)
 
-            await asyncio.to_thread(set_loc)
+                await asyncio.to_thread(set_loc_dvt)
+                logger.info(f"Successfully set location for {udid} to ({latitude}, {longitude}) via DVT")
+            else:
+                # Older iOS: Use DtSimulateLocation with lockdown
+                def set_loc_lockdown():
+                    dt_simulate = DtSimulateLocation(tunnel.lockdown)
+                    dt_simulate.set(latitude, longitude)
 
-            logger.info(f"Successfully set location for {udid} to ({latitude}, {longitude})")
+                await asyncio.to_thread(set_loc_lockdown)
+                logger.info(f"Successfully set location for {udid} to ({latitude}, {longitude}) via lockdown")
+
             return True
 
         except Exception as e:
@@ -360,23 +370,32 @@ class DeviceManager:
     async def clear_location(self, udid: str) -> bool:
         """Clear the simulated location for a device.
 
-        Uses DVT LocationSimulation which is compatible with iOS 17+.
+        Uses DVT LocationSimulation for iOS 17+ and DtSimulateLocation for older iOS.
         """
         tunnel = self.tunnel_manager.get_tunnel(udid)
         if not tunnel or not tunnel.active:
             raise ValueError(f"Device {udid} not found or tunnel inactive")
 
         try:
-            # Clear simulated location using DVT (run in thread as it's blocking)
-            def clear_loc():
-                dvt = DvtSecureSocketProxyService(tunnel.rsd)
-                dvt.perform_handshake()
-                location_sim = LocationSimulation(dvt)
-                location_sim.clear()
+            if tunnel.is_ios17_or_newer:
+                # iOS 17+: Use DVT LocationSimulation
+                def clear_loc_dvt():
+                    dvt = DvtSecureSocketProxyService(tunnel.rsd)
+                    dvt.perform_handshake()
+                    location_sim = LocationSimulation(dvt)
+                    location_sim.clear()
 
-            await asyncio.to_thread(clear_loc)
+                await asyncio.to_thread(clear_loc_dvt)
+                logger.info(f"Successfully cleared location for {udid} via DVT")
+            else:
+                # Older iOS: Use DtSimulateLocation with lockdown
+                def clear_loc_lockdown():
+                    dt_simulate = DtSimulateLocation(tunnel.lockdown)
+                    dt_simulate.clear()
 
-            logger.info(f"Successfully cleared location for {udid}")
+                await asyncio.to_thread(clear_loc_lockdown)
+                logger.info(f"Successfully cleared location for {udid} via lockdown")
+
             return True
 
         except Exception as e:

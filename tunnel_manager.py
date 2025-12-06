@@ -1,11 +1,13 @@
 import asyncio
 import logging
-from typing import Dict, Optional
-from dataclasses import dataclass
+from typing import Dict, Optional, Union
+from dataclasses import dataclass, field
 import subprocess
 import time
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 from pymobiledevice3.tunneld.api import async_get_tunneld_devices
+from pymobiledevice3.lockdown import LockdownClient, create_using_usbmux
+from pymobiledevice3.usbmux import list_devices
 from pymobiledevice3.exceptions import PyMobileDevice3Exception
 from config import settings
 
@@ -14,20 +16,39 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TunnelInfo:
-    """Information about an RSD tunnel."""
+    """Information about a device connection (RSD tunnel for iOS 17+ or lockdown for older)."""
 
     udid: str
     host: str
     port: int
     process: Optional[subprocess.Popen] = None
     rsd: Optional[RemoteServiceDiscoveryService] = None
+    lockdown: Optional[LockdownClient] = None
+    ios_version: Optional[str] = None
     last_check: float = 0
     restart_count: int = 0
     active: bool = True
 
+    @property
+    def is_ios17_or_newer(self) -> bool:
+        """Check if device is running iOS 17 or newer."""
+        if not self.ios_version:
+            # If we have RSD but no lockdown, assume iOS 17+
+            return self.rsd is not None and self.lockdown is None
+        try:
+            major_version = int(self.ios_version.split('.')[0])
+            return major_version >= 17
+        except (ValueError, IndexError):
+            return self.rsd is not None
+
 
 class TunnelManager:
-    """Manages RSD tunnels for iOS devices."""
+    """Manages device connections for iOS devices.
+
+    Supports both:
+    - RSD tunnels for iOS 17+ devices
+    - Lockdown connections for older iOS devices (< iOS 17)
+    """
 
     def __init__(self):
         self.tunnels: Dict[str, TunnelInfo] = {}
@@ -64,19 +85,33 @@ class TunnelManager:
                 await self._close_tunnel(tunnel)
 
     async def discover_devices(self):
-        """Discover connected iOS devices and start tunnels."""
+        """Discover connected iOS devices (both iOS 17+ via tunneld and older via usbmux)."""
         logger.info("Discovering devices...")
 
+        current_udids = set()
+
+        # First, try to discover iOS 17+ devices via tunneld
+        await self._discover_rsd_devices(current_udids)
+
+        # Then, discover older iOS devices via usbmux (that aren't already found via RSD)
+        await self._discover_lockdown_devices(current_udids)
+
+        # Remove tunnels for disconnected devices
+        async with self._lock:
+            disconnected = set(self.tunnels.keys()) - current_udids
+            for udid in disconnected:
+                logger.info(f"Device {udid} disconnected, removing tunnel")
+                tunnel = self.tunnels.pop(udid)
+                await self._close_tunnel(tunnel)
+
+    async def _discover_rsd_devices(self, current_udids: set):
+        """Discover iOS 17+ devices via tunneld/RSD."""
         try:
-            # Get connected devices via tunneld - returns list of RSD objects
             rsd_list = await async_get_tunneld_devices()
 
             async with self._lock:
-                current_udids = set()
-
                 for rsd in rsd_list:
                     try:
-                        # Get device UDID from the RSD - RSD has udid property directly
                         def get_udid():
                             return rsd.udid
 
@@ -84,10 +119,8 @@ class TunnelManager:
                         current_udids.add(udid)
 
                         if udid not in self.tunnels:
-                            # New device found, create tunnel
                             await self._create_tunnel_from_rsd(rsd, udid)
                         else:
-                            # Update existing tunnel with new RSD if needed
                             tunnel = self.tunnels[udid]
                             if not tunnel.active:
                                 tunnel.rsd = rsd
@@ -98,42 +131,105 @@ class TunnelManager:
                         logger.error(f"Error processing RSD device: {e}")
                         continue
 
-                # Remove tunnels for disconnected devices
-                disconnected = set(self.tunnels.keys()) - current_udids
-                for udid in disconnected:
-                    logger.info(f"Device {udid} disconnected, removing tunnel")
-                    tunnel = self.tunnels.pop(udid)
-                    await self._close_tunnel(tunnel)
+        except Exception as e:
+            logger.debug(f"No iOS 17+ devices via tunneld: {e}")
+
+    async def _discover_lockdown_devices(self, current_udids: set):
+        """Discover older iOS devices (< iOS 17) via usbmux/lockdown."""
+        try:
+            def get_usbmux_devices():
+                return list_devices()
+
+            devices = await asyncio.to_thread(get_usbmux_devices)
+
+            async with self._lock:
+                for device in devices:
+                    try:
+                        udid = device.serial
+
+                        # Skip if already discovered via RSD (iOS 17+)
+                        if udid in current_udids:
+                            continue
+
+                        current_udids.add(udid)
+
+                        if udid not in self.tunnels:
+                            await self._create_tunnel_from_lockdown(udid)
+                        else:
+                            tunnel = self.tunnels[udid]
+                            if not tunnel.active and tunnel.lockdown is None:
+                                # Try to reconnect via lockdown
+                                await self._create_tunnel_from_lockdown(udid)
+
+                    except Exception as e:
+                        logger.error(f"Error processing usbmux device {device.serial}: {e}")
+                        continue
 
         except Exception as e:
-            logger.error(f"Error discovering devices: {e}")
-            logger.info("Make sure tunneld is running: sudo python3 -m pymobiledevice3 remote tunneld")
+            logger.debug(f"No older iOS devices via usbmux: {e}")
 
     async def _create_tunnel_from_rsd(self, rsd: RemoteServiceDiscoveryService, udid: str):
-        """Create a new tunnel entry from an existing RSD object."""
-        logger.info(f"Creating tunnel for device {udid}")
+        """Create a new tunnel entry from an existing RSD object (iOS 17+)."""
+        logger.info(f"Creating RSD tunnel for device {udid} (iOS 17+)")
 
         try:
             # Extract connection info from RSD
-            # RSD address is a tuple (host, port)
             address = getattr(rsd.service, 'address', ('localhost', 0))
             host = address[0] if isinstance(address, tuple) else 'localhost'
             port = address[1] if isinstance(address, tuple) else 0
+
+            # Get iOS version from RSD
+            def get_ios_version():
+                try:
+                    return rsd.all_values.get('ProductVersion')
+                except Exception:
+                    return None
+
+            ios_version = await asyncio.to_thread(get_ios_version)
 
             tunnel = TunnelInfo(
                 udid=udid,
                 host=host,
                 port=port,
                 rsd=rsd,
+                ios_version=ios_version,
                 last_check=time.time(),
                 active=True,
             )
 
             self.tunnels[udid] = tunnel
-            logger.info(f"Tunnel created for {udid} at {host}:{port}")
+            logger.info(f"RSD tunnel created for {udid} at {host}:{port} (iOS {ios_version})")
 
         except Exception as e:
-            logger.error(f"Failed to create tunnel for {udid}: {e}")
+            logger.error(f"Failed to create RSD tunnel for {udid}: {e}")
+
+    async def _create_tunnel_from_lockdown(self, udid: str):
+        """Create a new tunnel entry from lockdown connection (older iOS < 17)."""
+        logger.info(f"Creating lockdown connection for device {udid} (older iOS)")
+
+        try:
+            def create_lockdown():
+                lockdown = create_using_usbmux(serial=udid)
+                ios_version = lockdown.product_version
+                return lockdown, ios_version
+
+            lockdown, ios_version = await asyncio.to_thread(create_lockdown)
+
+            tunnel = TunnelInfo(
+                udid=udid,
+                host='localhost',
+                port=0,
+                lockdown=lockdown,
+                ios_version=ios_version,
+                last_check=time.time(),
+                active=True,
+            )
+
+            self.tunnels[udid] = tunnel
+            logger.info(f"Lockdown connection created for {udid} (iOS {ios_version})")
+
+        except Exception as e:
+            logger.error(f"Failed to create lockdown connection for {udid}: {e}")
 
     async def _close_tunnel(self, tunnel: TunnelInfo):
         """Close a tunnel and clean up resources."""
@@ -143,6 +239,10 @@ class TunnelManager:
             if tunnel.rsd:
                 await asyncio.to_thread(tunnel.rsd.close)
                 tunnel.rsd = None
+
+            if tunnel.lockdown:
+                # Lockdown clients don't have a close method, just clear the reference
+                tunnel.lockdown = None
 
             if tunnel.process:
                 tunnel.process.terminate()
@@ -178,25 +278,38 @@ class TunnelManager:
                 logger.error(f"Error in tunnel monitor: {e}")
 
     async def _check_tunnel_health(self, tunnel: TunnelInfo) -> bool:
-        """Check if a tunnel is healthy."""
+        """Check if a tunnel/connection is healthy."""
         try:
-            # Check if RSD connection is still active
-            if not tunnel.rsd:
+            # Check RSD connection (iOS 17+)
+            if tunnel.rsd:
+                def check_rsd():
+                    try:
+                        _ = tunnel.rsd.udid
+                        return True
+                    except Exception:
+                        return False
+
+                result = await asyncio.to_thread(check_rsd)
+                if result:
+                    tunnel.last_check = time.time()
+                    return True
                 return False
 
-            # Try to ping the device by getting basic info from RSD
-            def check_connection():
-                try:
-                    # RSD has udid property directly
-                    _ = tunnel.rsd.udid
-                    return True
-                except:
-                    return False
+            # Check lockdown connection (older iOS)
+            if tunnel.lockdown:
+                def check_lockdown():
+                    try:
+                        _ = tunnel.lockdown.udid
+                        return True
+                    except Exception:
+                        return False
 
-            result = await asyncio.to_thread(check_connection)
-            if result:
-                tunnel.last_check = time.time()
-                return True
+                result = await asyncio.to_thread(check_lockdown)
+                if result:
+                    tunnel.last_check = time.time()
+                    return True
+                return False
+
             return False
 
         except Exception as e:
