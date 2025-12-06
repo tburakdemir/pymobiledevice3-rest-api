@@ -1,10 +1,17 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 import logging
 from contextlib import asynccontextmanager
 
-from models import DeviceInfo, DeviceStatistics, LaunchAppRequest, SetLocationRequest
+from models import (
+    DeviceInfo,
+    DeviceStatistics,
+    LaunchAppRequest,
+    SetLocationRequest,
+    InstallAppRequest,
+    UninstallAppsRequest,
+)
 from tunnel_manager import TunnelManager
 from device_manager import DeviceManager
 from config import settings
@@ -250,4 +257,98 @@ async def clear_location(udid: str):
         logger.error(f"Error clearing location for {udid}: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to clear location: {str(e)}"
+        )
+
+
+@app.get("/api/v1/devices/{udid}/apps", response_model=List[Dict[str, Any]])
+async def list_apps(udid: str):
+    """
+    List all installed apps on a device.
+
+    Args:
+        udid: Device UDID
+
+    Returns:
+        List of installed apps with their details
+    """
+    try:
+        apps = await device_manager.list_apps(udid)
+        return apps
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error listing apps on {udid}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list apps: {str(e)}")
+
+
+@app.post("/api/v1/devices/{udid}/apps")
+async def install_app(udid: str, request: InstallAppRequest):
+    """
+    Install an IPA on a device.
+
+    Args:
+        udid: Device UDID
+        request: Request body containing:
+            - path: Path to the IPA file to install
+
+    Returns:
+        Success message
+    """
+    try:
+        success = await device_manager.install_app(udid, request.path)
+
+        if success:
+            return {
+                "status": "success",
+                "message": f"App installed successfully from {request.path} on device {udid}",
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to install app")
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error installing app on {udid}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to install app: {str(e)}")
+
+
+@app.delete("/api/v1/devices/{udid}/apps")
+async def uninstall_apps(udid: str, request: UninstallAppsRequest):
+    """
+    Uninstall apps from a device.
+
+    Args:
+        udid: Device UDID
+        request: Request body containing:
+            - bundle_ids: List of bundle IDs to uninstall
+
+    Returns:
+        Results for each bundle ID (success/failure)
+    """
+    try:
+        results = await device_manager.uninstall_apps(udid, request.bundle_ids)
+
+        failed = [bid for bid, success in results.items() if not success]
+        if failed:
+            return {
+                "status": "partial",
+                "message": f"Some apps failed to uninstall: {', '.join(failed)}",
+                "results": results,
+            }
+
+        return {
+            "status": "success",
+            "message": f"All apps uninstalled successfully from device {udid}",
+            "results": results,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error uninstalling apps on {udid}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to uninstall apps: {str(e)}"
         )
